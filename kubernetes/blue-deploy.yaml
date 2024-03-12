@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: elabregistry.azurecr.io/blue-nginx:1
+        image: elabregistar.azurecr.io/blue-nginx:1
         ports:
         - name: http
           containerPort: 80
