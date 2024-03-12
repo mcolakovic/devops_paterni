@@ -1,0 +1,105 @@
+trigger:
+- main
+
+pr:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  ACR_NAME: 'elabregistry.azurecr.io'
+  ACR_REPO_NAME: 'elabregistry.azurecr.io/docker-java-app'
+  ARTIFACT_NAME: 'docker-java-app'
+  RESOURCE_GROUP: 'Gaurav-RG'
+  AKS_CLUSTER_NAME: 'Gaurav-AKS-cluster'
+
+stages:
+- stage: DeployApp
+  jobs:
+  - job: DeployApp
+    steps:
+    - checkout: self
+    - task: UseDotNet@2
+
+      displayName: 'Use .NET Core sdk'
+      inputs:
+        packageType: 'sdk'
+        version: '3.1.x'
+        installationPath: $(Agent.ToolsDirectory)/dotnet
+
+    - task: AzureCLI@2
+      displayName: 'Set cluster context'
+      inputs:
+        azureSubscription: '<your_azure_subscription>'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          az aks get-credentials --resource-group $(RESOURCE_GROUP) --name $(AKS_CLUSTER_NAME)
+
+    - task: AzureKubernetesService@1
+      displayName: 'Deploy app'
+      inputs:
+        azureSubscriptionEndpoint: '<your_azure_subscription>'
+        action: 'deploy'
+        namespace: 'default'
+        manifests: |
+          ./kubernetes/service.yaml
+          ./kubernetes/blue-deploy.yaml
+        images: 'demogaurav.azurecr.io/green-nginx:1'
+        strategy: 'blue-green'
+        trafficSplitMethod: 'pod'
+        whatIf: false
+
+- stage: ApproveApp
+  jobs:
+  - job: ApproveApp
+    dependsOn: DeployApp
+    steps:
+    - script: echo asked for approval
+
+- stage: PromoteReject
+  jobs:
+  - job: PromoteReject
+    dependsOn: ApproveApp
+    steps:
+    - checkout: self
+
+    - task: AzureCLI@2
+      displayName: 'Set cluster context'
+      inputs:
+        azureSubscription: '<your_azure_subscription>'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          az aks get-credentials --resource-group $(RESOURCE_GROUP) --name $(AKS_CLUSTER_NAME)
+
+    - task: AzureKubernetesService@1
+      displayName: 'Promote App'
+      condition: succeeded()
+      inputs:
+        azureSubscriptionEndpoint: '<your_azure_subscription>'
+        action: 'deploy'
+        namespace: 'default'
+        manifests: |
+          ./kubernetes/service.yaml
+          ./kubernetes/green-deploy.yaml
+        images: 'demogaurav.azurecr.io/green-nginx:1'
+        strategy: 'blue-green'
+        trafficSplitMethod: 'pod'
+        whatIf: false
+
+    - task: AzureKubernetesService@1
+      displayName: 'Reject App'
+      condition: failed()
+      inputs:
+        azureSubscriptionEndpoint: '<your_azure_subscription>'
+        action: 'deploy'
+        namespace: 'default'
+        manifests: |
+          ./kubernetes/service.yaml
+          ./kubernetes/blue-deploy.yaml
+        images: 'demogaurav.azurecr.io/green-nginx:1'
+        strategy: 'blue-green'
+        trafficSplitMethod: 'pod'
+        whatIf: false
